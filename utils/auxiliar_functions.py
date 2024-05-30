@@ -4,17 +4,14 @@ QUERY_SEPARATOR = ','
 
 # Receives bytes until n bytes have been received. If cannot receive n bytes None is returned
 def recv_exactly(socket, n):
-    try:
-        buffer = bytes()
-        while n > 0:
-            received = socket.recv(n)
-            if len(received) == 0:
-                return None
-            buffer += received
-            n -= len(received)
-        return buffer 
-    except OSError:
-        return None
+    buffer = bytes()
+    while n > 0:
+        received = socket.recv(n)
+        if len(received) == 0:
+            return None
+        buffer += received
+        n -= len(received)
+    return buffer 
 
 # Sends bytes until all of them are sent, or a failure occurs
 def send_all(socket, byte_array):
