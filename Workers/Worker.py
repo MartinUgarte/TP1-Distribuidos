@@ -40,7 +40,7 @@ class Worker(ABC):
         self.id = id
         self.next_pools = next_pools
         self.eof_to_receive = eof_to_receive
-        self.pending_eof = {}
+        self.pending_eof = eof_to_receive
         self.signal_queue = Queue()
         self.communicator = None
         signal.signal(signal.SIGTERM, self.handle_SIGTERM)
@@ -72,22 +72,22 @@ class Worker(ABC):
             self.communicator.close_connection()
 
     @abstractmethod
-    def process_message(self, client_id, message):
+    def process_message(self, message):
         pass
 
     @abstractmethod
-    def get_final_results(self, client_id):
+    def get_final_results(self, message):
         pass
     
-    def send_final_results(self, client_id):
-        fr = self.get_final_results(client_id)
+    def send_final_results(self):
+        fr = self.get_final_results()
         if not fr:
             return True
         final_results = []
         append_extend(final_results,fr)
         i = 0
         while True:
-            batch = Batch(client_id, final_results[i:i+BATCH_SIZE])
+            batch = Batch(final_results[i:i+BATCH_SIZE])
             if batch.size() == 0:
                 break
             if not self.send_batch(batch):
@@ -104,10 +104,10 @@ class Worker(ABC):
     def process_batch(self, batch):
         results = []
         for message in batch:
-            result = self.process_message(batch.client_id, message)
+            result = self.process_message(message)
             if result:
                 append_extend(results, result)
-        return Batch(batch.client_id, results)
+        return Batch(results)
     
     def receive_message(self):
         worker_name = self.id.get_worker_name()
@@ -118,26 +118,26 @@ class Worker(ABC):
         self.communicator.close_connection()
 
     @abstractmethod
-    def remove_client_context(self, client_id):
+    def reset_context(self):
         pass
 
-    def remove_client(self, client_id):
-        self.pending_eof.pop(client_id)
-        self.remove_client_context(client_id)
+    def reset(self):
+        self.pending_eof = self.eof_to_receive
+        self.reset_context()
         print(f"[Worker {self.id}] Client disconnected. Worker reset")
 
-    def handle_eof(self, client_id):
-        self.pending_eof[client_id] = self.pending_eof.get(client_id, self.eof_to_receive) - 1
+    def handle_eof(self):
+        self.pending_eof -= 1
         print(f"[Worker {self.id}] Pending EOF to receive: {self.pending_eof}")
-        if not self.pending_eof[client_id]:
+        if not self.pending_eof:
             print(f"[Worker {self.id}] No more eof to receive")
-            if not self.send_final_results(client_id):
+            if not self.send_final_results():
                 print(f"[Worker {self.id}] Disconnected from MOM, while sending final results")
                 return False
-            if not self.send_batch(Batch.eof(client_id)):
+            if not self.send_batch(Batch([])):
                 print(f"[Worker {self.id}] Disconnected from MOM, while sending eof")
                 return False
-            self.remove_client(client_id)
+            self.reset()
         return True
 
     def loop(self):
@@ -147,9 +147,8 @@ class Worker(ABC):
                 print(f"[Worker {self.id}] Disconnected from MOM, while receiving_message")
                 break
             batch = Batch.from_bytes(batch_bytes)
-
             if batch.is_empty():
-                if not self.handle_eof(batch.client_id):
+                if not self.handle_eof():
                     break
             else:
                 result_batch = self.process_batch(batch)
