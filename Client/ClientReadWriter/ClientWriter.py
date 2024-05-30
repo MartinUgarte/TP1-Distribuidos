@@ -27,8 +27,12 @@ class ClientWriter():
     def start(self):
         signal.signal(signal.SIGTERM, self.handle_SIGTERM)
         while True:
-            result_batch = Batch.from_socket(self.socket, QueryMessage)
-            if not result_batch:
+            try:
+                result_batch = Batch.from_socket(self.socket, QueryMessage)
+                if not result_batch:
+                    print("[ClientWriter] Socket disconnected")
+                    break
+            except OSError:
                 print("[ClientWriter] Socket disconnected")
                 break
             if result_batch.is_empty():
